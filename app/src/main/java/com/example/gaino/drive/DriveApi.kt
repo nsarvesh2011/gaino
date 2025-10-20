@@ -12,9 +12,17 @@ interface DriveApi {
     suspend fun listAppDataFiles(
         @Header("Authorization") bearer: String,
         @Query("spaces") spaces: String = "appDataFolder",
-        @Query("q") query: String, // e.g., "name = 'portfolio.json'"
+        @Query("q") query: String,
         @Query("fields") fields: String = "files(id,name,modifiedTime)"
     ): DriveFilesResponse
+
+    // We only need headers here (ETag); body isn’t used.
+    @GET("drive/v3/files/{fileId}")
+    suspend fun getMetadata(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Query("fields") fields: String = "id,name,modifiedTime"
+    ): Response<ResponseBody>
 
     @GET("drive/v3/files/{fileId}")
     suspend fun downloadFile(
@@ -28,6 +36,18 @@ interface DriveApi {
     suspend fun createFileMultipart(
         @Header("Authorization") bearer: String,
         @Query("uploadType") uploadType: String = "multipart",
+        @Part("metadata") metadata: RequestBody,
+        @Part media: MultipartBody.Part
+    ): DriveFile
+
+    // PATCH with If-Match (conflict-safe write)
+    @Multipart
+    @PATCH("upload/drive/v3/files/{fileId}")
+    suspend fun updateFileMultipart(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Query("uploadType") uploadType: String = "multipart",
+        @Header("If-Match") ifMatch: String?,
         @Part("metadata") metadata: RequestBody,
         @Part media: MultipartBody.Part
     ): DriveFile

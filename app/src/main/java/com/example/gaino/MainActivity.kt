@@ -92,13 +92,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onSignedIn(account: GoogleSignInAccount?) {
-        // Update UI to reflect signed-in state
+        // Swap to the signed-in UI with a test write button
         setContent {
             GainoTheme {
-                SignInScreen(
-                    isSignedIn = account != null,
-                    onSignIn = { launchSignIn() },
-                    onSignOut = { signOut() } // or this@MainActivity.signOut()
+                SignedInScreen(
+                    onSignOut = { signOut() },
+                    onTestWrite = { testWrite() }
                 )
             }
         }
@@ -117,6 +116,31 @@ class MainActivity : ComponentActivity() {
                     Toast.LENGTH_LONG
                 ).show()
             }
+        }
+    }
+
+    /**
+     * TEMP helper to validate ETag/If-Match write path.
+     * Appends a dummy lot to the holdings array and writes back.
+     * We’ll replace this with proper models/serialization next.
+     */
+    private fun testWrite() {
+        lifecycleScope.launch {
+            val store = com.example.gaino.drive.PortfolioStore(this@MainActivity)
+            val current = store.ensureAndRead() ?: """{"holdings":[]}"""
+            // Very naive append for demo purposes only (not robust JSON handling)
+            val updated = if (current.contains("\"holdings\":[")) {
+                current.replace(
+                    "\"holdings\":[",
+                    "\"holdings\":[{\"qty\":1,\"price\":100.0,\"symbol\":\"NSE:INFY\"},"
+                )
+            } else current
+            val ok = store.write(updated)
+            Toast.makeText(
+                this@MainActivity,
+                if (ok) "Write OK" else "Write failed",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 }
@@ -145,6 +169,27 @@ private fun SignInScreen(
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = onSignIn) { Text("Sign in with Google") }
             }
+        }
+    }
+}
+
+@Composable
+private fun SignedInScreen(
+    onSignOut: () -> Unit,
+    onTestWrite: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Signed in ✅")
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onSignOut) { Text("Sign out") }
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onTestWrite) { Text("Test write (append dummy lot)") }
         }
     }
 }

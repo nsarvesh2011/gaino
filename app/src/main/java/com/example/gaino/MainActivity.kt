@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import com.example.gaino.auth.Scopes
 import com.example.gaino.ui.theme.GainoTheme
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -25,6 +26,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -49,6 +51,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // If already signed in, update UI and kick off Drive read
         GoogleSignIn.getLastSignedInAccount(this)?.let { onSignedIn(it) }
     }
 
@@ -73,20 +76,6 @@ class MainActivity : ComponentActivity() {
         signInLauncher.launch(client.signInIntent)
     }
 
-    private fun onSignedIn(account: GoogleSignInAccount?) {
-        // We’ll fetch an access token & call Drive later.
-        // For now, simply recompose the UI to show “Signed in”.
-        setContent {
-            GainoTheme {
-                SignInScreen(
-                    isSignedIn = account != null,
-                    onSignIn = { launchSignIn() },
-                    onSignOut = { signOut() }
-                )
-            }
-        }
-    }
-
     private fun signOut() {
         val client = GoogleSignIn.getClient(this, gso)
         client.signOut().addOnCompleteListener {
@@ -101,6 +90,35 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun onSignedIn(account: GoogleSignInAccount?) {
+        // Update UI to reflect signed-in state
+        setContent {
+            GainoTheme {
+                SignInScreen(
+                    isSignedIn = account != null,
+                    onSignIn = { launchSignIn() },
+                    onSignOut = { signOut() } // or this@MainActivity.signOut()
+                )
+            }
+        }
+
+        // Create/read portfolio.json in appDataFolder (logs content)
+        lifecycleScope.launch {
+            try {
+                val store = com.example.gaino.drive.PortfolioStore(this@MainActivity)
+                val json = store.ensureAndRead()
+                Log.d("Gaino", "ensureAndRead result: $json")
+            } catch (t: Throwable) {
+                Log.e("Gaino", "Drive bootstrap failed", t)
+                Toast.makeText(
+                    this@MainActivity,
+                    "Drive init failed: ${t.javaClass.simpleName}: ${t.message ?: ""}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
 }
 
 @Composable
@@ -110,7 +128,9 @@ private fun SignInScreen(
     onSignOut: () -> Unit
 ) {
     Box(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         if (isSignedIn) {

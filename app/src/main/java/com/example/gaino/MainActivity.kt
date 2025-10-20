@@ -6,20 +6,29 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.example.gaino.auth.Scopes
+import com.example.gaino.portfolio.PortfolioUiState
+import com.example.gaino.portfolio.PortfolioViewModel
 import com.example.gaino.ui.theme.GainoTheme
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -31,6 +40,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private lateinit var gso: GoogleSignInOptions
+    private val vm: PortfolioViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +51,7 @@ class MainActivity : ComponentActivity() {
             .requestScopes(Scopes.DRIVE_APPDATA)
             .build()
 
+        // Default screen (pre sign-in)
         setContent {
             GainoTheme {
                 SignInScreen(
@@ -51,9 +62,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // If already signed in, update UI and kick off Drive read
+        // If already signed in, switch to portfolio and load
         GoogleSignIn.getLastSignedInAccount(this)?.let { onSignedIn(it) }
     }
+
+    // --- Sign-in flow ---
 
     private val signInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -92,22 +105,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onSignedIn(account: GoogleSignInAccount?) {
-        // Swap to the signed-in UI with a test write button
+        // Swap to Portfolio screen
         setContent {
             GainoTheme {
-                SignedInScreen(
-                    onSignOut = { signOut() },
-                    onTestWrite = { testWrite() }
+                PortfolioScreen(
+                    state = vm,
+                    onAddLot = { vm.addLot("NSE:INFY", 1.0, 100.0) }, // temp stub; editable UI next step
+                    onSignOut = { signOut() }
                 )
             }
         }
 
-        // Create/read portfolio.json in appDataFolder (logs content)
+        // Kick off a load (remote→cache or cache fallback)
+        vm.load()
+
+        // (Optional) Keep your previous ensureAndRead log for sanity once:
         lifecycleScope.launch {
             try {
                 val store = com.example.gaino.drive.PortfolioStore(this@MainActivity)
-                val json = store.ensureAndRead()
-                Log.d("Gaino", "ensureAndRead result: $json")
+                val json = store.load() // returns Portfolio; safe to log
+                Log.d("Gaino", "Loaded portfolio (once): $json")
             } catch (t: Throwable) {
                 Log.e("Gaino", "Drive bootstrap failed", t)
                 Toast.makeText(
@@ -116,31 +133,6 @@ class MainActivity : ComponentActivity() {
                     Toast.LENGTH_LONG
                 ).show()
             }
-        }
-    }
-
-    /**
-     * TEMP helper to validate ETag/If-Match write path.
-     * Appends a dummy lot to the holdings array and writes back.
-     * We’ll replace this with proper models/serialization next.
-     */
-    private fun testWrite() {
-        lifecycleScope.launch {
-            val store = com.example.gaino.drive.PortfolioStore(this@MainActivity)
-            val current = store.ensureAndRead() ?: """{"holdings":[]}"""
-            // Very naive append for demo purposes only (not robust JSON handling)
-            val updated = if (current.contains("\"holdings\":[")) {
-                current.replace(
-                    "\"holdings\":[",
-                    "\"holdings\":[{\"qty\":1,\"price\":100.0,\"symbol\":\"NSE:INFY\"},"
-                )
-            } else current
-            val ok = store.write(updated)
-            Toast.makeText(
-                this@MainActivity,
-                if (ok) "Write OK" else "Write failed",
-                Toast.LENGTH_SHORT
-            ).show()
         }
     }
 }
@@ -174,22 +166,58 @@ private fun SignInScreen(
 }
 
 @Composable
-private fun SignedInScreen(
-    onSignOut: () -> Unit,
-    onTestWrite: () -> Unit
+private fun PortfolioScreen(
+    state: PortfolioViewModel,
+    onAddLot: () -> Unit,
+    onSignOut: () -> Unit
 ) {
+    val ui: PortfolioUiState by state.state.collectAsState()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
+            .padding(16.dp)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Signed in ✅")
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Gaino — Portfolio", modifier = Modifier.padding(bottom = 12.dp))
+
+            when {
+                ui.isLoading -> {
+                    Text("Loading…")
+                }
+                ui.error != null -> {
+                    Text("Error: ${ui.error}")
+                }
+                ui.holdings.isEmpty() -> {
+                    Text("No holdings yet. Add one!")
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(ui.holdings) { h ->
+                            Column {
+                                Text(h.symbol)
+                                Text("Qty: ${"%.2f".format(h.qty)}")
+                                Text("Avg: ${"%.2f".format(h.avgCost)}   Last: ${"%.2f".format(h.lastPrice)}")
+                                Text(
+                                    "P&L: ${"%.2f".format(h.pnlAbs)}  (${String.format("%.2f", h.pnlPct)}%)",
+                                    textAlign = TextAlign.Start
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
+            Button(onClick = onAddLot) { Text("Add Lot (INFY x1 @ 100)") }
+            Spacer(Modifier.height(8.dp))
             Button(onClick = onSignOut) { Text("Sign out") }
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = onTestWrite) { Text("Test write (append dummy lot)") }
         }
     }
 }

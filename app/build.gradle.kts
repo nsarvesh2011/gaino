@@ -18,6 +18,13 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField(
+            "String",
+            "APPS_SCRIPT_BASE",
+            "\"https://script.google.com/macros/s/AKfycbxvTUIZFVDGdh3wZLdRWIQpvJ2rk8lI8Dbe39zqP0VP7oCMq7L8G_ws2H308lAcSqyn/\""
+        )
+
     }
 
     buildTypes {

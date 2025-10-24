@@ -30,6 +30,9 @@ class PortfolioViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store by lazy { PortfolioStore(app.applicationContext) }
     private val _state = MutableStateFlow(PortfolioUiState())
+
+    private val priceRepo by lazy { com.example.gaino.market.PriceRepo(getApplication()) }
+
     val state: StateFlow<PortfolioUiState> = _state
 
     // Stub price map for now (Step 8 will fetch real prices)
@@ -39,7 +42,8 @@ class PortfolioViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
             val p = store.load()
-            prices = prices.ifEmpty { p.holdings.associate { it.symbol to 0.0 } } // zeros until Step 8
+            // fetch prices (TTL cache inside)
+            prices = priceRepo.getPrices(force = false)
             _state.value = PortfolioUiState(
                 isLoading = false,
                 error = null,

@@ -214,8 +214,12 @@ private fun PortfolioScreen(
                 }
             }
 
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { state.load() }) { Text("Refresh prices") }
+
             Spacer(Modifier.height(12.dp))
             Button(onClick = onAddLot) { Text("Add Lot (INFY x1 @ 100)") }
+
             Spacer(Modifier.height(8.dp))
             Button(onClick = onSignOut) { Text("Sign out") }
         }
